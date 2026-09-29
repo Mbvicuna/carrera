@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>La carrera · Deporte Planificación</title>
+<title>Tour Planificación · Deportes Planificación</title>
 <meta name="theme-color" content="#00398F">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -156,6 +156,7 @@ section+section{margin-top:28px}
 .lb .x{position:absolute;top:calc(12px + env(safe-area-inset-top,0px));right:12px;border:0;background:rgba(255,255,255,.15);
   color:#fff;width:44px;height:44px;border-radius:50%;font-size:22px}
 .auth-card{margin-top:22px}
+.hint{color:var(--muted);font-size:13.5px;margin-top:6px}
 .center{text-align:center}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
@@ -173,6 +174,10 @@ const SUPABASE_URL = 'https://hwmjxzkvzuuvgtuetcel.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_U4lNFHOS_sT_Kvikw142aQ_NFRlNsLX';
 const SPORTS = ['Correr','Caminar','Ciclismo','Natación','Gimnasio','Fútbol','Senderismo','Yoga','Otro'];
 const COUNTRIES = ['Chile','Argentina','Colombia','Brasil','Otro'];
+const APP_NAME = 'Tour Planificación';
+const APP_SUB = 'Deportes Planificación';
+const SEASON_START = '2026-10-01', SEASON_END = '2026-12-31';
+const SEASON_MONTHS = ['2026-10','2026-11','2026-12'];
 
 /* ============ UTILIDADES ============ */
 const $ = (s, r=document) => r.querySelector(s);
@@ -184,6 +189,8 @@ const AVCOLORS = ['#C8452C','#0F8B8D','#A8671A','#3D5A80','#8E5572','#2E7D5B','#
 
 function todayStr(){ const d=new Date(); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
 function currentMonth(){ return todayStr().slice(0,7); }
+function seasonMonth(){ const k=currentMonth(); return k<SEASON_MONTHS[0]?SEASON_MONTHS[0]:(k>SEASON_MONTHS[2]?SEASON_MONTHS[2]:k); }
+function inSeason(a){ return a.activity_date>=SEASON_START && a.activity_date<=SEASON_END; }
 function monthKey(s){ return s.slice(0,7); }
 function addMonths(key, delta){ let [y,m]=key.split('-').map(Number); m+=delta; while(m>12){m-=12;y++} while(m<1){m+=12;y--} return `${y}-${pad(m)}`; }
 function monthLabel(key){ const [y,m]=key.split('-').map(Number); return `${MONTHS[m-1]} ${y}`; }
@@ -213,8 +220,8 @@ function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('sh
 /* ============ ESTADO ============ */
 const state = {
   session:null, me:null, profiles:[], profMap:new Map(), acts:[],
-  tab:'race', raceMode:'month', raceMonth:currentMonth(),
-  profId:null, profMonth:currentMonth(), authMode:'login', editing:false, busy:false
+  tab:'race', raceMode:'month', raceMonth:seasonMonth(),
+  profId:null, profMonth:seasonMonth(), authMode:'login', editing:false, busy:false
 };
 let sb;
 let renderToken = 0;
@@ -275,7 +282,7 @@ function ranking(pred){
   return rows;
 }
 function earliestMonth(){
-  let min=currentMonth();
+  let min=seasonMonth();
   for(const a of state.acts){ const k=monthKey(a.activity_date); if(k<min) min=k; }
   return min;
 }
@@ -305,8 +312,8 @@ function renderAuth(){
   const signup = state.authMode==='signup';
   $('#app').innerHTML = `
   <div class="wrap">
-    <h1>La carrera</h1>
-    <p class="lead">Deporte Planificación. Sube tus horas y mira quién va adelante.</p>
+    <h1>${APP_NAME}</h1>
+    <p class="lead">${APP_SUB}. Sube tus horas y mira quién va adelante.</p>
     ${heroTrack()}
     <div class="auth-card">
       <div class="seg" role="group" aria-label="Entrar o crear cuenta">
@@ -374,7 +381,7 @@ const ICONS = {
   profile:'<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>'
 };
 function renderShell(){
-  const items=[['race','Carrera'],['upload','Subir'],['feed','Actividad'],['profile','Perfil']];
+  const items=[['race','Tour'],['upload','Subir'],['feed','Actividad'],['profile','Perfil']];
   $('#app').innerHTML = `
     <div class="wrap"><main id="view" tabindex="-1"></main></div>
     <nav class="nav" aria-label="Secciones">
@@ -397,7 +404,7 @@ async function route(){
   if(!state.session){ renderAuth(); return; }
   state.tab='race'; state.profId=null; state.editing=false;
   renderShell();
-  $('#view').innerHTML='<p class="empty">Cargando la carrera…</p>';
+  $('#view').innerHTML='<p class="empty">Cargando el tour…</p>';
   try{ await loadData(); }
   catch(err){
     $('#view').innerHTML=`<div class="msg err">No se pudieron cargar los datos: ${esc(err.message||err)}. Revisa que el script SQL se haya ejecutado en Supabase.</div>`;
@@ -429,24 +436,27 @@ async function renderView(animate=true){
 
 function go(tab, profId=null){
   state.tab=tab;
-  if(tab==='profile'){ state.profId=profId; state.editing=false; state.profMonth=currentMonth(); }
+  if(tab==='profile'){ state.profId=profId; state.editing=false; state.profMonth=seasonMonth(); }
   updateNav(); renderView(true); window.scrollTo(0,0);
 }
 
 /* ============ VISTA: CARRERA ============ */
 function raceView(){
-  const mode=state.raceMode, mk=state.raceMonth, cur=currentMonth();
-  const pred = a => mode==='all' || monthKey(a.activity_date)===mk;
+  const mode=state.raceMode, mk=state.raceMonth, cur=seasonMonth();
+  const pred = a => mode==='all' ? inSeason(a) : monthKey(a.activity_date)===mk;
   const rows=ranking(pred);
   const lead=rows[0]?.min || 0;
   const past = mode==='month' && mk<cur;
-  const period = mode==='all' ? 'en total' : (past ? `en ${MONTHS[+mk.slice(5)-1]}` : 'este mes');
+  const future = mode==='month' && mk>cur;
+  const pre = todayStr()<SEASON_START;
+  const period = mode==='all' ? 'en total' : ((past||future) ? `en ${MONTHS[+mk.slice(5)-1]}` : 'este mes');
 
   let title='', sub='';
   const mine=rows.find(r=>r.id===state.me.id);
   if(lead===0){
-    title = past ? 'Ese mes nadie sumó horas' : 'Todavía nadie suma horas';
-    sub = past ? '' : 'Sube la primera actividad y sal al frente.';
+    if(pre){ title='Arranca el 1 de octubre'; sub='Mientras tanto, crea tu perfil y súbete una foto.'; }
+    else { title = past ? 'Ese mes nadie sumó horas' : 'Todavía nadie suma horas';
+      sub = past ? '' : 'Sube la primera actividad y sal al frente.'; }
   } else if(mine.min===0){
     title = past ? 'No sumaste horas ese mes' : `Aún no sumas horas ${period}`;
     sub = `${rows[0].p.name} lleva ${fmt(lead)}.`;
@@ -461,12 +471,12 @@ function raceView(){
     sub = ahead ? `A ${fmt(ahead.min-mine.min)} de ${ahead.p.name}.` : '';
   }
 
-  const minM=earliestMonth();
+  const minM=SEASON_MONTHS[0];
   const nav = mode==='month' ? `
     <div class="monthnav">
       <button type="button" data-act="prev" aria-label="Mes anterior" ${mk<=minM?'disabled':''}>‹</button>
       <span>${monthLabel(mk)}</span>
-      <button type="button" data-act="next" aria-label="Mes siguiente" ${mk>=cur?'disabled':''}>›</button>
+      <button type="button" data-act="next" aria-label="Mes siguiente" ${mk>=SEASON_MONTHS[2]?'disabled':''}>›</button>
     </div>` : '';
 
   state.raceRows = new Map(rows.map(r=>[r.id,r])); state.raceLead = lead;
@@ -483,10 +493,11 @@ function raceView(){
       <button type="button" class="rname" data-prof="${r.id}">${esc(r.p.name)}${you?'<em>tú</em>':''}</button>
       <span class="rtime"><b>${fmt(r.min)}</b>${(!isLead && lead>0)?`<small>−${fmt(lead-r.min)}</small>`:''}</span></li>`;
   }).join('');
-  const empty = lead===0 && !past ? `<div class="empty" style="padding-top:8px"><button class="btn" data-tab="upload">Subir mi primera actividad</button></div>` : '';
+  const empty = lead===0 && !past && !pre ? `<div class="empty" style="padding-top:8px"><button class="btn" data-tab="upload">Subir mi primera actividad</button></div>` : '';
 
   return `
-    <h1>La carrera</h1>
+    <h1>${APP_NAME}</h1>
+    <p class="lead">${APP_SUB} · octubre a diciembre 2026</p>
     <div class="toolbar">
       <div class="seg" role="group" aria-label="Periodo">
         <button type="button" data-act="mode-month" aria-pressed="${mode==='month'}">Por mes</button>
@@ -536,7 +547,8 @@ function uploadView(){
     <p class="lead">Agrega una captura de Strava o de tu reloj como evidencia.</p>
     <form id="upForm" class="stack" style="margin-top:20px" novalidate>
       <div class="field"><label for="upDate">Fecha</label>
-        <input id="upDate" type="date" value="${t}" max="${t}" required></div>
+        <input id="upDate" type="date" value="${t}" max="${t}" ${t>=SEASON_START?`min="${SEASON_START}"`:''} required>
+        <p class="hint">Cuentan las actividades del 1 de octubre al 31 de diciembre de 2026.</p></div>
       <div class="field"><label for="upSport">Deporte</label>
         <select id="upSport">${SPORTS.map(s=>`<option>${s}</option>`).join('')}</select></div>
       <div class="field"><span class="lbl">Duración</span>
@@ -592,6 +604,8 @@ async function submitUpload(e){
   const fail = t => { msg.innerHTML=`<div class="msg err">${esc(t)}</div>`; };
   if(!date) return fail('Elige la fecha.');
   if(date>todayStr()) return fail('La fecha no puede ser futura.');
+  if(date>SEASON_END) return fail('El tour terminó el 31 de diciembre.');
+  if(todayStr()>=SEASON_START && date<SEASON_START) return fail('El tour parte el 1 de octubre. Elige una fecha desde ese día.');
   if(mins<=0) return fail('Indica cuánto tiempo entrenaste.');
   if(mins>1440) return fail('La duración no puede superar 24 horas.');
   const already=state.acts.filter(a=>a.user_id===state.me.id && a.activity_date===date).reduce((s,a)=>s+a.minutes,0);
@@ -609,8 +623,8 @@ async function submitUpload(e){
     if(ins.error){ await sb.storage.from('evidence').remove([path]); throw ins.error; }
     await loadData();
     state.busy=false; pendingFile=null;
-    toast('Actividad subida');
-    state.raceMode='month'; state.raceMonth=currentMonth();
+    toast(date>=SEASON_START ? 'Actividad subida' : 'Actividad guardada. Contará cuando parta el tour, el 1 de octubre.');
+    state.raceMode='month'; state.raceMonth=seasonMonth();
     go('race');
   }catch(err){
     state.busy=false; btn.disabled=false; btn.textContent='Subir actividad';
@@ -654,18 +668,18 @@ async function profileView(){
   const id=state.profId || state.me.id;
   const p=state.profMap.get(id) || state.me;
   const isMe=p.id===state.me.id;
-  const mk=state.profMonth, cur=currentMonth();
+  const mk=state.profMonth, cur=seasonMonth();
   const mine=state.acts.filter(a=>a.user_id===p.id);
   const inMonth=mine.filter(a=>monthKey(a.activity_date)===mk);
   const byDay=new Map();
   inMonth.forEach(a=>{ const d=+a.activity_date.slice(8,10); byDay.set(d,(byDay.get(d)||0)+a.minutes); });
   const monthMin=inMonth.reduce((s,a)=>s+a.minutes,0);
-  const totalMin=mine.reduce((s,a)=>s+a.minutes,0);
-  const streak=streakOf(mine.map(a=>a.activity_date));
+  const totalMin=mine.filter(inSeason).reduce((s,a)=>s+a.minutes,0);
+  const streak=streakOf(mine.filter(inSeason).map(a=>a.activity_date));
   const rk=ranking(a=>monthKey(a.activity_date)===mk).find(r=>r.id===p.id);
 
   const first=firstWeekday(mk), dim=daysInMonth(mk);
-  const todayD = mk===cur ? +todayStr().slice(8,10) : -1;
+  const todayD = mk===currentMonth() ? +todayStr().slice(8,10) : -1;
   let cells=['L','M','X','J','V','S','D'].map(d=>`<div class="dow" aria-hidden="true">${d}</div>`).join('');
   for(let i=0;i<first;i++) cells+='<div class="cell blank"></div>';
   for(let d=1; d<=dim; d++){
@@ -716,9 +730,9 @@ async function profileView(){
       <div class="toolbar" style="margin-top:0">
         <h2>Calendario</h2>
         <div class="monthnav">
-          <button type="button" data-act="pprev" aria-label="Mes anterior">‹</button>
+          <button type="button" data-act="pprev" aria-label="Mes anterior" ${mk<=SEASON_MONTHS[0]?'disabled':''}>‹</button>
           <span>${monthLabel(mk)}</span>
-          <button type="button" data-act="pnext" aria-label="Mes siguiente" ${mk>=cur?'disabled':''}>›</button>
+          <button type="button" data-act="pnext" aria-label="Mes siguiente" ${mk>=SEASON_MONTHS[2]?'disabled':''}>›</button>
         </div>
       </div>
       <div class="cal">${cells}</div>
@@ -797,7 +811,7 @@ document.addEventListener('submit', async e=>{
   }
 });
 document.addEventListener('change', e=>{
-  if(e.target.id==='profPick'){ state.profId = e.target.value===state.me.id ? null : e.target.value; state.editing=false; state.profMonth=currentMonth(); renderView(false); }
+  if(e.target.id==='profPick'){ state.profId = e.target.value===state.me.id ? null : e.target.value; state.editing=false; state.profMonth=seasonMonth(); renderView(false); }
 });
 document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeLightbox(); });
 
