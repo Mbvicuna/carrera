@@ -120,9 +120,10 @@ input:focus,select:focus,textarea:focus{border-color:var(--track);outline:none;b
 .gallery img{width:100%;height:100%;object-fit:cover;display:block}
 section+section{margin-top:28px}
 .av img{width:100%;height:100%;object-fit:cover;display:block}
-.track{position:relative;min-height:54px;border-radius:27px;background:var(--track);box-shadow:inset 0 0 0 1px rgba(255,255,255,.22)}
+.track{position:relative;height:54px;border-radius:27px;background:var(--track);box-shadow:inset 0 0 0 1px rgba(255,255,255,.22)}
 .track .startline{position:absolute;left:0;top:8px;bottom:8px;width:2px;background:rgba(255,255,255,.55);border-radius:2px}
-.track .runner{cursor:pointer;padding:0;left:calc((100% - 42px)*var(--p) + 4px)}
+.track .runner{cursor:pointer;padding:0;top:10px;left:calc(var(--x,0)*1px)}
+.track .runner.sel{z-index:500!important;transform:scale(1.18);box-shadow:0 0 0 3px rgba(255,255,255,.9)}
 .track .runner:hover{transform:scale(1.1)}
 .runinfo{color:#fff;font-size:14.5px;padding:12px 6px 6px;min-height:46px}
 .rank{list-style:none;margin:8px 0 0;padding:0}
@@ -395,9 +396,13 @@ function updateNav(){
   });
 }
 function animateTracks(animate=true){
-  const strips=[...document.querySelectorAll('[data-p]')];
-  if(!animate){ strips.forEach(s=>s.style.setProperty('--p',s.dataset.p)); return; }
-  requestAnimationFrame(()=>requestAnimationFrame(()=>{ strips.forEach(s=>s.style.setProperty('--p',s.dataset.p)); }));
+  const els=[...document.querySelectorAll('[data-p],[data-x]')];
+  const apply=()=>els.forEach(s=>{
+    if(s.dataset.p!==undefined) s.style.setProperty('--p',s.dataset.p);
+    if(s.dataset.x!==undefined) s.style.setProperty('--x',s.dataset.x);
+  });
+  if(!animate){ apply(); return; }
+  requestAnimationFrame(()=>requestAnimationFrame(apply));
 }
 
 async function route(){
@@ -429,8 +434,8 @@ async function renderView(animate=true){
   }catch(err){ html=`<div class="msg err">Ocurrió un error: ${esc(err.message||err)}</div>`; }
   if(token!==renderToken) return;
   v.innerHTML=html;
-  animateTracks(animate);
   if(state.tab==='race') layoutTrack();
+  animateTracks(animate);
   if(state.tab==='upload') bindUpload();
 }
 
@@ -484,7 +489,7 @@ function raceView(){
     const p = lead>0 ? r.min/lead : 0;
     const isLead = lead>0 && r.rank===1;
     return `<button type="button" class="runner av ${isLead?'lead':''}" data-run="${r.id}" data-p="${p.toFixed(4)}"
-      style="--s:34px;--p:0;--d:${Math.min(i*30,500)}ms;background:${colorOf(r.id)};z-index:${100-r.rank}"
+      style="--s:34px;--x:0;--d:${Math.min(i*30,500)}ms;background:${colorOf(r.id)}"
       aria-label="${esc(r.p.name)}, ${fmt(r.min)}">${avatarInner(r.p)}</button>`;
   }).join('');
   const list = rows.map(r=>{
@@ -510,30 +515,39 @@ function raceView(){
       <div class="track" id="track"><div class="startline"></div>${runners}</div>
       <p class="runinfo" id="runInfo">Toca un círculo para ver quién es y cuántas horas lleva.</p>
     </div>
-    <p class="legend">Quien va más adelante lleva más horas. Los círculos cercanos se apilan en filas para no taparse.</p>
+    <p class="legend">Quien va más adelante lleva más horas. Si varios van parejos, sus círculos se superponen un poco: toca la pista para ver quién es.</p>
     <section><h2>Posiciones</h2><ol class="rank">${list}</ol></section>
     ${empty}`;
 }
 
-function layoutTrack(){
+function layoutTrack(immediate=false){
   const tr=$('#track'); if(!tr) return;
-  const runners=[...tr.querySelectorAll('.runner[data-p]')].sort((a,b)=>parseFloat(a.dataset.p)-parseFloat(b.dataset.p));
-  const usable=Math.max(tr.clientWidth-42,1), size=34, MAXR=4, last=[];
-  runners.forEach(el=>{
-    const x=usable*parseFloat(el.dataset.p)+4;
-    let row=-1;
-    for(let r=0;r<MAXR;r++){ if(last[r]===undefined || x-last[r]>=size+2){ row=r; break; } }
-    if(row<0){ let bg=-1e9; for(let r=0;r<MAXR;r++){ const g=x-last[r]; if(g>bg){ bg=g; row=r; } } }
-    last[row]=x;
-    el.style.top=(8+row*38)+'px';
+  const items=[...tr.querySelectorAll('.runner[data-p]')].sort((a,b)=>
+    parseFloat(a.dataset.p)-parseFloat(b.dataset.p) || parseInt(b.dataset.rank)-parseInt(a.dataset.rank));
+  const n=items.length; if(!n) return;
+  const lo=4, hi=Math.max(tr.clientWidth-38,lo);
+  const g=n>1 ? Math.min(14,(hi-lo)/(n-1)) : 0;
+  const xs=items.map(el=>lo+(hi-lo)*parseFloat(el.dataset.p));
+  for(let i=1;i<n;i++) xs[i]=Math.max(xs[i],xs[i-1]+g);
+  if(xs[n-1]>hi){ xs[n-1]=hi; for(let i=n-2;i>=0;i--) xs[i]=Math.min(xs[i],xs[i+1]-g); }
+  items.forEach((el,i)=>{
+    el.dataset.x=xs[i].toFixed(1); el.style.zIndex=i+1;
+    if(immediate) el.style.setProperty('--x',xs[i].toFixed(1));
   });
-  const used=Math.max(last.length,1);
-  tr.style.height=(used*38+12)+'px';
 }
-window.addEventListener('resize', ()=>{ clearTimeout(window.__lt); window.__lt=setTimeout(layoutTrack,120); });
+window.addEventListener('resize', ()=>{ clearTimeout(window.__lt); window.__lt=setTimeout(()=>layoutTrack(true),120); });
+function pickRunner(x){
+  let best=null, bd=1e9;
+  document.querySelectorAll('#track .runner').forEach(r=>{
+    const b=r.getBoundingClientRect(), d=Math.abs(x-(b.left+b.width/2));
+    if(d<bd){ bd=d; best=r; }
+  });
+  return best?.dataset.run;
+}
 
 function showRunInfo(id){
   const r=state.raceRows?.get(id), box=$('#runInfo'); if(!r||!box) return;
+  document.querySelectorAll('#track .runner').forEach(el=>el.classList.toggle('sel', el.dataset.run===id));
   const lead=state.raceLead;
   const diff = lead>0 && r.rank>1 ? ` · −${fmt(lead-r.min)} del líder` : '';
   box.innerHTML=`<b>${esc(r.p.name)}</b> · ${lead>0?r.rank+'º · ':''}${fmt(r.min)}${diff} <button type="button" class="linkbtn" style="color:#fff" data-prof="${r.id}">Ver perfil</button>`;
@@ -759,6 +773,11 @@ function closeLightbox(){ const lb=$('#lb'); lb.hidden=true; lb.innerHTML=''; }
 document.addEventListener('click', async e=>{
   const lb=$('#lb');
   if(!lb.hidden && (e.target===lb || e.target.closest('.x'))){ closeLightbox(); return; }
+  if(e.target.closest('#track')){
+    const id = e.detail===0 ? e.target.closest('[data-run]')?.dataset.run : pickRunner(e.clientX);
+    if(id) showRunInfo(id);
+    return;
+  }
   const el=e.target.closest('[data-tab],[data-prof],[data-lb],[data-del],[data-act],[data-run]');
   if(!el) return;
   if(el.dataset.run){ showRunInfo(el.dataset.run); return; }
@@ -843,3 +862,4 @@ setInterval(()=>{ if(!document.hidden) refresh(); }, 120000);
 </script>
 </body>
 </html>
+
